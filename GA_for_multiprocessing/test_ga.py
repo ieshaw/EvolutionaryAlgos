@@ -35,7 +35,7 @@ class TestGA(unittest.TestCase):
                 output_dir=cls.out_dir,
                 gene_map= cls.gene_map)
         cls.assertEqual(3, test_ga.chromosome_len)
-        np.testing.assert_array_equal(np.array([3, 2, 1]), test_ga.mod_array)
+        np.testing.assert_array_equal(np.array([4, 3, 2]), test_ga.mod_array)
         np.testing.assert_array_equal(np.array([1, 0, 0]), test_ga.base_array)
         cls.assertTrue(os.path.exists(cls.out_dir))
 

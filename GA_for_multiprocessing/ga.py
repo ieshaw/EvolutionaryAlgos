@@ -89,16 +89,18 @@ class ga():
         '''
         if start_fresh:
             self.new_population=True
+            self.parents = []
         elif len(self.population.keys()) > 0:
             self.new_population=False
         elif len(os.listdir(self.generation_dir)) > 0:
             self.new_population=False
+            self.populations = {}
             generations = os.listdir(self.generation_dir)
             generations.sort()
             with open(os.path.join(self.generation_dir, generations[-1]), 'r') as f:
-                self.population = json.load(f)
-            for member_id in self.population.keys():
-                with open(os.path.join(self.population_dir, member_id + ".json"), 'r') as f:
+                self.prev_generation = json.load(f)
+            for member_id in self.prev_generation["members"]:
+                with open(os.path.join(self.population_dir, str(member_id) + ".json"), 'r') as f:
                     self.population[member_id] = json.load(f)
         else:
             raise ValueError("For ga.load_population() either specify `start_fesh=True` or ensure there are generations in `output_dir`/generations/")
@@ -145,10 +147,7 @@ class ga():
             json.dump(out_dict, f)
 
     def save_generation(self):
-        out_dict = {}
-        for k in self.population:
-            out_dict[k] = {"chromosome": self.population[k]["chromosome"].tolist(),
-                    "fitness": self.population[k]["fitness"]}
+        out_dict = {"members": list(self.population.keys()), "parents": self.parents}
         with open(os.path.join(self.generation_dir, 
             str(int(time.time() * 10e6)) + ".json") , 'w') as f:
             json.dump(out_dict, f)

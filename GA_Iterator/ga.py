@@ -78,7 +78,7 @@ class ga():
         self.base_array = np.zeros(self.chromosome_len, dtype="int")
         self.gene_map = gene_map
         for i in range(self.chromosome_len):
-            self.mod_array[i] = gene_map[i][2] - gene_map[i][1]
+            self.mod_array[i] = gene_map[i][2] - gene_map[i][1] + 1
             self.base_array[i] = gene_map[i][1]
         self.gene_max = self.mod_array.prod()
 

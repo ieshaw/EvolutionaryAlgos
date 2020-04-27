@@ -43,9 +43,7 @@ class TestGA(unittest.TestCase):
         test_ga = ga(
                 output_dir=os.path.join(cls.out_dir, str(int(time.time()*10e6))),
                 gene_map= cls.gene_map)
-        with cls.assertRaises(ValueError) as e:
-            test_ga.load_population()
-        test_ga.load_population(start_fresh=True)
+        test_ga.load_population(start_fresh=False)
         child_id, chromosome = test_ga.gen_child()
 
     def test_save_member(cls):
@@ -84,6 +82,20 @@ class TestGA(unittest.TestCase):
         test_ga.load_population(start_fresh=False)
         cls.assertEqual(len(list(test_ga.population.keys())), 4)
         cls.assertEqual(test_ga.population[test_ga.parents[0]]["fitness"], 0)
+
+    def test_force_start_fresh(cls):
+        test_ga = ga(
+                output_dir=os.path.join(cls.out_dir, str(int(time.time()*10e6))),
+                gene_map= cls.gene_map,
+                elitism_ratio = 0.2,
+                fitness_lower_is_better=True)
+        test_ga.load_population(start_fresh=True)
+        for i in range(20):
+            child_id, chromosome = test_ga.gen_child()
+            test_ga.population[child_id]["fitness"] = i
+        cls.assertEqual(len(list(test_ga.population.keys())), 20)
+        test_ga.load_population(start_fresh=True)
+        cls.assertEqual(len(list(test_ga.population.keys())), 0)
 
     def test_load_generation_from_memory_descending_fitness(cls):
         test_ga = ga(

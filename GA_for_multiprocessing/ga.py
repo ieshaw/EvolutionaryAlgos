@@ -56,7 +56,8 @@ class ga():
             gene_map=[("chromosome", 0, 1)],
             elitism_ratio=0.2,
             mutation_ratio=0.2,
-            fitness_lower_is_better=True):
+            fitness_lower_is_better=True,
+            verbose=False):
         '''
         input output_dir: str, will be created if it does not exist already
         input gene_map: list of tuples, ("gene_name", min_int, max_int)
@@ -64,6 +65,7 @@ class ga():
         input fitness_lower_is_better: bool
         '''
         self.population = {}
+        self.verbose=verbose
         self.output_dir = output_dir 
         self.fitness_lower_is_better = fitness_lower_is_better
         self.elitism_ratio = elitism_ratio
@@ -87,15 +89,17 @@ class ga():
         checks if there is a population on file, if there is and start fresh is false,
             then it uses that population for parents
         '''
-        if start_fresh:
-            self.new_population=True
-            self.parents = []
-        elif len(self.population.keys()) > 0:
+        if (~start_fresh) & (len(self.population.keys()) > 0):
             self.new_population=False
-        elif len(os.listdir(self.generation_dir)) > 0:
+            if self.verbose:
+                print("Seeding new generation with population from memory")
+        elif (~start_fresh) & (len(os.listdir(self.generation_dir)) > 0):
             self.new_population=False
-            self.populations = {}
+            self.population = {}
             generations = os.listdir(self.generation_dir)
+            if self.verbose:
+                print("Found {} generations on file, seeding new generation".format(
+                    len(generations)))
             generations.sort()
             with open(os.path.join(self.generation_dir, generations[-1]), 'r') as f:
                 self.prev_generation = json.load(f)
@@ -103,13 +107,19 @@ class ga():
                 with open(os.path.join(self.population_dir, str(member_id) + ".json"), 'r') as f:
                     self.population[member_id] = json.load(f)
         else:
-            raise ValueError("For ga.load_population() either specify `start_fesh=True` or ensure there are generations in `output_dir`/generations/")
+            if self.verbose:
+                print("Starting from fresh, randomly breeding new generation")
+            self.new_population=True
+            self.parents = []
+            self.population = {}
         if not self.new_population:
             self.choose_parents()
             new_population = {}
             for parent_id in self.parents:
                 new_population[parent_id] = self.population[parent_id]
             self.population = new_population
+            if self.verbose:
+                print("Selected {} parents to breed new generation".format(self.num_parents))
 
     def choose_parents(self):
         df = pd.DataFrame.from_dict(self.population, orient="index")
@@ -117,6 +127,12 @@ class ga():
         df.reset_index(inplace=True)
         df = df[["member_id", "fitness"]].copy()
         df.sort_values("fitness", ascending=self.fitness_lower_is_better, inplace=True)
+        self.prev_generation_df = df
+        if self.verbose:
+            print("Previous generation fitness")
+            print("="*30)
+            print(self.prev_generation_df.head())
+            print("="*30)
         self.parents = df["member_id"][:max(2,
             int(df.shape[0] * self.elitism_ratio))].tolist()
         self.num_parents = len(self.parents)

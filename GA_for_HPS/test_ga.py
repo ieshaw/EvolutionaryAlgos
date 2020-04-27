@@ -140,6 +140,69 @@ class TestGA(unittest.TestCase):
         cls.assertEqual(len(list(new_ga.population.keys())), 4)
         cls.assertEqual(new_ga.population[new_ga.parents[0]]["fitness"], 0)
 
+    def test_last_generation_info_from_file(cls):
+        out_dir = os.path.join(cls.out_dir, str(int(time.time()*10e6)))
+        test_ga = ga(
+                output_dir=out_dir,
+                gene_map= cls.gene_map,
+                elitism_ratio = 0.2,
+                fitness_lower_is_better=True)
+        test_ga.load_population(start_fresh=True)
+        for i in range(20):
+            child_id, chromosome = test_ga.gen_child()
+            test_ga.population[child_id]["fitness"] = i
+            test_ga.save_member(child_id)
+        test_ga.save_generation()
+        test_ga.load_population()
+        for i in range(10):
+            child_id, chromosome = test_ga.gen_child()
+            test_ga.population[child_id]["fitness"] = -1*i
+            test_ga.save_member(child_id)
+        test_ga.save_generation()
+        del test_ga
+        new_ga = ga(
+                output_dir=out_dir,
+                gene_map= cls.gene_map,
+                elitism_ratio = 0.2,
+                fitness_lower_is_better=True)
+        parents, fit_df = new_ga.last_generation_info_from_file(min_member_count=0) 
+        cls.assertEqual(len(parents), 4)
+        parents, fit_df = new_ga.last_generation_info_from_file(min_member_count=15) 
+        cls.assertEqual(len(parents), 0)
+        parents, fit_df = new_ga.last_generation_info_from_file(min_member_count=0,
+                save_to_new_dir=True) 
+        del new_ga
+        new_ga_two = ga(
+                output_dir=os.path.join(cls.out_dir, 
+                    os.path.split(out_dir)[1]+ "_latest"),
+                gene_map= cls.gene_map)
+        new_ga_two.load_population()
+        cls.assertEqual(new_ga_two.prev_generation_df.shape[0], 14)
+
+    def test_delete_partial_generation_files(cls):
+        out_dir = os.path.join(cls.out_dir, str(int(time.time()*10e6)))
+        test_ga = ga(
+                output_dir=out_dir,
+                gene_map= cls.gene_map)
+        test_ga.load_population()
+        for i in range(20):
+            child_id, chromosome = test_ga.gen_child()
+            test_ga.population[child_id]["fitness"] = i
+            test_ga.save_member(child_id)
+        test_ga.save_generation()
+        cls.assertEqual(len(os.listdir(test_ga.generation_dir)), 1)
+        test_ga.save_generation(delete_partials=True)
+        cls.assertEqual(len(os.listdir(test_ga.generation_dir)), 1)
+        test_ga.save_generation(delete_partials=False)
+        cls.assertEqual(len(os.listdir(test_ga.generation_dir)), 2)
+        test_ga.load_population()
+        for i in range(20):
+            child_id, chromosome = test_ga.gen_child()
+            test_ga.population[child_id]["fitness"] = i
+            test_ga.save_member(child_id)
+        test_ga.save_generation(delete_partials=True)
+        cls.assertEqual(len(os.listdir(test_ga.generation_dir)), 3)
+
     def test_crossover(cls):
         test_ga = ga(
                 output_dir=os.path.join(cls.out_dir, str(int(time.time()*10e6))),
@@ -161,7 +224,7 @@ class TestGA(unittest.TestCase):
                 mutation_ratio = 1,
                 fitness_lower_is_better=True)
         chromosome = np.zeros(len(cls.gene_map))
-        cls.assertTrue(test_ga.mutate(chromosome).sum() > 0)
+        cls.assertTrue(np.abs(test_ga.mutate(chromosome)).sum() > 0)
 
     def test_breeding(cls):
         test_ga = ga(

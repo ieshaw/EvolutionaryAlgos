@@ -48,6 +48,7 @@ import json
 import numpy as np
 import os
 import pandas as pd
+import shutil
 import time
 
 class ga():
@@ -84,28 +85,29 @@ class ga():
             self.base_array[i] = gene_map[i][1]
         self.gene_max = self.mod_array.prod()
 
-    def load_population(self, start_fresh=False):
+    def load_population(self, start_fresh=False, min_member_count=0, generation_file=""):
         '''
         checks if there is a population on file, if there is and start fresh is false,
             then it uses that population for parents
+        input min_member_count: int, Will search for most recent generation whose
+            len(members) >= min_member_count. Default 0 will just give the most recent 
+            generation file.
+        input generation_file: str, if specified, will load that specific generation
+            file regardless of recency or memmebr count
         '''
-        if (~start_fresh) & (len(self.population.keys()) > 0):
+        self.previous_generation_file_name = ""
+        if (~start_fresh) & (len(self.population.keys()) > 0) & (
+                len(generation_file) < 1):
             self.new_population=False
             if self.verbose:
                 print("Seeding new generation with population from memory")
         elif (~start_fresh) & (len(os.listdir(self.generation_dir)) > 0):
             self.new_population=False
             self.population = {}
-            generations = os.listdir(self.generation_dir)
-            if self.verbose:
-                print("Found {} generations on file, seeding new generation".format(
-                    len(generations)))
-            generations.sort()
-            with open(os.path.join(self.generation_dir, generations[-1]), 'r') as f:
-                self.prev_generation = json.load(f)
-            for member_id in self.prev_generation["members"]:
-                with open(os.path.join(self.population_dir, str(member_id) + ".json"), 'r') as f:
-                    self.population[member_id] = json.load(f)
+            prev_generation_id, self.prev_generation, \
+                    self.population = self.load_generation_from_file(
+                            min_member_count=min_member_count, 
+                            generation_file=generation_file) 
         else:
             if self.verbose:
                 print("Starting from fresh, randomly breeding new generation")
@@ -121,20 +123,62 @@ class ga():
             if self.verbose:
                 print("Selected {} parents to breed new generation".format(self.num_parents))
 
-    def choose_parents(self):
-        df = pd.DataFrame.from_dict(self.population, orient="index")
+    def load_generation_from_file(self, min_member_count=0, generation_file=""):
+        '''
+        input generation_file: str
+        input min_member_count: int, Will search for most recent generation whose
+            len(members) >= min_member_count. Default 0 will just give the most recent 
+            generation file.
+        input generation_file: str, if specified, will load that specific generation
+            file regardless of recency or memmebr count
+        output generation_id: int
+        output generation: dict, keys ["members", "parents"]
+        '''
+        generations = os.listdir(self.generation_dir)
+        if self.verbose:
+            print("Found {} generations on file, seeding new generation".format(
+                len(generations)))
+        generations.sort()
+        num_generations = len(generations)
+        population = {}
+        num_members = -1
+        i = 0
+        if len(generation_file) < 1:
+            while num_members < min_member_count:
+                i+= 1
+                if i > num_generations:
+                    raise ValueError("No Generations meet min_members >= {} requirement".format(
+                        min_members))
+                generation_file = generations[-i]
+                with open(os.path.join(self.generation_dir, generation_file), 'r') as f:
+                    generation = json.load(f)
+                num_members = len(generation["members"])
+        else:
+            with open(os.path.join(self.generation_dir, generation_file), 'r') as f:
+                generation = json.load(f)
+        generation_id = generation_file.split(".")[0]
+        for member_id in generation["members"]:
+            with open(os.path.join(self.population_dir, str(member_id) + ".json"), 'r') as f:
+                population[member_id] = json.load(f)
+        return generation_id, generation, population
+
+    def create_fitness_df(self, population):
+        df = pd.DataFrame.from_dict(population, orient="index")
         df.index.rename("member_id", inplace=True)
         df.reset_index(inplace=True)
         df = df[["member_id", "fitness"]].copy()
         df.sort_values("fitness", ascending=self.fitness_lower_is_better, inplace=True)
-        self.prev_generation_df = df
         if self.verbose:
-            print("Previous generation fitness")
+            print("Fitness DF")
             print("="*30)
-            print(self.prev_generation_df.head())
+            print(df.head())
             print("="*30)
-        self.parents = df["member_id"][:max(2,
-            int(df.shape[0] * self.elitism_ratio))].tolist()
+        return df
+
+    def choose_parents(self):
+        self.prev_generation_df = self.create_fitness_df(self.population)
+        self.parents = self.prev_generation_df["member_id"][:max(2,
+            int(self.prev_generation_df.shape[0] * self.elitism_ratio))].tolist()
         self.num_parents = len(self.parents)
 
     def gen_child(self):
@@ -162,11 +206,58 @@ class ga():
                     out_dict[k] = self.population[member_id][k]
             json.dump(out_dict, f)
 
-    def save_generation(self):
+    def save_generation(self, delete_partials=False):
+        '''
+        input delete_partials: bool, will delete earlier saved files of this same generations.
+                                    Useful for 
+        '''
         out_dict = {"members": list(self.population.keys()), "parents": self.parents}
-        with open(os.path.join(self.generation_dir, 
-            str(int(time.time() * 10e6)) + ".json") , 'w') as f:
+        generation_file_name = os.path.join(self.generation_dir, 
+                str(int(time.time() * 10e6)) + ".json")
+        with open(generation_file_name , 'w') as f:
             json.dump(out_dict, f)
+        if delete_partials and (len(self.previous_generation_file_name)>1):
+            os.remove(self.previous_generation_file_name)
+        self.previous_generation_file_name = generation_file_name
+
+    def last_generation_info_from_file(self, min_member_count=0, 
+            save_to_new_dir=False, new_dir=""):
+        '''
+        This function is meant to look through the file system for the most recent generation.
+        Useful if you want to just transfer the latest generation to a new computer and seed 
+            the algorithm futher (think saving generation to git to pick up at a later date) 
+        input min_member_count: int, Will search for most recent generation whose
+            len(members) >= min_member_count. Default 0 will just give the most recent 
+            generation file.
+        input save_to_new_dir: bool, if True, will create new file directory with just the 
+            most recent generatio.
+        input new_dir: str, if empty string, will just append "_latest" to ga.output_dir
+        output parents: list, parent id's
+        output fitness_df: dataframe, columns ["member_id", "fitness"]
+        '''
+        generation_id, generation, population = self.load_generation_from_file(
+                        min_member_count=min_member_count) 
+        if self.verbose:
+            print("Generation ID: {}".format(generation_id))
+            print("Parents: {}".format(generation["parents"]))
+        fitness_df = self.create_fitness_df(population)
+        if save_to_new_dir:
+            if len(new_dir) < 1:
+                path_tup = os.path.split(self.output_dir)
+                new_dir = os.path.join(path_tup[0],path_tup[1] + "_latest")
+            os.makedirs(new_dir, exist_ok=True)
+            new_generation_dir = os.path.join(new_dir, "generations")
+            os.makedirs(new_generation_dir, exist_ok=True)
+            generation_file = str(generation_id) + ".json"
+            shutil.copyfile(os.path.join(self.generation_dir, generation_file),
+                os.path.join(new_generation_dir, generation_file))
+            new_population_dir = os.path.join(new_dir, "population")
+            os.makedirs(new_population_dir, exist_ok=True)
+            for member_id in fitness_df["member_id"].tolist():
+                member_file = str(member_id) + ".json"
+                shutil.copyfile(os.path.join(self.population_dir, member_file),
+                    os.path.join(new_population_dir, member_file))
+        return generation["parents"], fitness_df
 
     def crossover(self, left_chromosome_member_id, right_chromosome_member_id):
         '''
@@ -185,6 +276,6 @@ class ga():
         '''
         mutate_map = np.where(
             np.random.uniform(size=self.chromosome_len) < self.mutation_ratio, 1, 0)
-        chromosome +=  mutate_map * np.random.randint(0, self.gene_max,
-                size=self.chromosome_len).astype(int)
-        return chromosome
+        mutation_array = np.around(mutate_map 
+                * self.mod_array * 0.5 * np.random.randn(self.chromosome_len))
+        return chromosome + mutation_array.astype(int)
